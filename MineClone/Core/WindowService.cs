@@ -4,6 +4,9 @@ using System.Text;
 using Silk.NET.Input;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
+using Window = Silk.NET.Windowing.Window;
+using Silk.NET.SDL;
+using Color = System.Drawing.Color;
 
 namespace MineClone.Core;
 
@@ -27,14 +30,17 @@ public sealed class WindowService
             IsVisible = false,
         });
         _window.Initialize();
-        _window.Update  += (d) => {
+        _window.Update  += (d) =>
+        {
+            if (!_window.IsVisible) return;
             _lastDelta = (float)d;
             Update?.Invoke(this);
         };
         _window.Render  += (d) => {
+            if (!_window.IsVisible) return;
             _lastDelta = (float)d;
-            GraphicService.Instance.Clear();
             Render?.Invoke(this);
+            GraphicService.Instance.Clear(Color.Black);
         };
         _window.Closing += ( ) => {
             Unload?.Invoke(this);
@@ -54,7 +60,7 @@ public sealed class WindowService
             _lastSize = vector;
         };
 
-        _gl   = _window.CreateOpenGL();
+        _gl    = _window.CreateOpenGL();
         _input = _window.CreateInput();
         foreach (var keyboard in _input.Keyboards)
         {
@@ -91,17 +97,15 @@ public sealed class WindowService
                 _lastMouseWheel = vector;
             };
         }
-
-        Load?.Invoke(this);
     }
 
-    private static Lazy<WindowService> Lazy => new(() => new());
-    public static WindowService Instance => Lazy.Value;
+    private static Lazy<WindowService> Lazy => new(() => new WindowService());
+    public static WindowService Instance { get; } = Lazy.Value;
 
     public float GetDelta() => _lastDelta;
     public void Verify()
     {
-        Debug.Assert(_window.IsInitialized);
+        Debug.Assert(_window.IsInitialized, "Window must be initialized");
     }
 
     public void Show()
@@ -110,7 +114,9 @@ public sealed class WindowService
         if (_running) return;
         
         _running = true;
+        Load?.Invoke(this);
         _window.Run();
+
     }
     public void Hide()
     {
@@ -150,6 +156,47 @@ public sealed class WindowService
     public static implicit operator GL(WindowService service)
     {
         return service._gl;
+    }
+
+    public float GetWidth()
+    {
+        return _window.Size.X;
+    }
+    public float GetHeight()
+    {
+        return _window.Size.Y;
+    }
+
+    public float GetAspect()
+    {
+        return GetWidth() / GetHeight();
+    }
+
+    public float GetProjectionWidth(float ratio)
+    {
+        return ratio;
+    }
+
+    public float GetProjectionHeight(float ratio)
+    {
+        return GetProjectionWidth(ratio) / GetAspect();
+    }
+
+    public Matrix4x4 GetProjection  (float fov=45f, float near=0.0001f, float far=10000f)
+    {
+        return Matrix4x4.CreatePerspective(fov, GetAspect(), near, far);
+    }
+    public Matrix4x4 GetOrthographic(float ratio  , float near=0.0001f, float far=10000f)
+    {
+        var projectionWidth  = GetProjectionWidth (ratio);
+        var projectionHeight = GetProjectionHeight(ratio);
+        
+        var left   = -projectionWidth / 2f;
+        var right  = +projectionWidth / 2f;
+        var bottom = -projectionHeight / 2f;
+        var top    = +projectionHeight / 2f;
+        
+        return Matrix4x4.CreateOrthographicOffCenter(left, right, bottom, top, near, far);
     }
 }
 
